@@ -8,20 +8,20 @@ myip [ARG(s)]
 	ip		:	public IP only
 
 	net		:	public & local IPs and related info
-	local	:	additional local data like hostname, MAC addresses, SSID etc.
+	local		:	additional local data like hostname, MAC addresses, SSID etc.
 	dns		:	public & local DNS IPs, local resolvers & related info
 	loc		:	coordinates & country of public IPs (only with 'net' or 'dns')
 	geo		:	local geolocation (latitude & longitude)
-	addr	:	local geolocation (address)
+	addr		:	local geolocation (address)
 	map		:	print URLs to open local geolcation in Apple Maps, OSM or Google Maps
 
 	all		:	all of the above
 
 	msg		:	share geolocation & address via Apple Messages (requires terminal-share CLI)
-	mail	:	share geolocation & address via Apple Mail (requires terminal-share CLI)
+	mail		:	share geolocation & address via Apple Mail (requires terminal-share CLI)
 
-	version	:	version number
-	help	:	this help document
+	version		:	version number
+	help		:	this help document
 
 
 Optional requisite: terminal-share	
