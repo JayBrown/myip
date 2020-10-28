@@ -1,0 +1,506 @@
+#!/bin/zsh
+# shellcheck shell=bash
+
+# myip v0.1
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
+
+process="myip"
+vno="0.1"
+
+_ip () {
+	localip=$(ipconfig getifaddr "$localdevice" 2>/dev/null)
+	! [[ $localip ]] && localip="-"
+	if $offline ; then
+		echo -e "Public IP:\tLocal IP:\t$localip"
+	else
+		publicip=$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null)
+		if [[ $publicip ]] ; then
+			publicname=$(dig +short -x "$publicip" 2>/dev/null | sed 's/\.$//')
+			! [[ $publicname ]] && publicname="-"
+			whoisraw=$(whois "$publicip" 2>/dev/null)
+			publicorg=$(echo "$whoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
+			if ! [[ $publicorg ]] ; then
+				publicorg=$(echo "$whoisraw" | grep "^descr:" | grep -v "^$" | sort | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
+			fi
+			! [[ $publicorg ]] && publicorg="-"
+			if $openvpn ; then
+				vpndevice=$(netstat -nr | awk '/^0\/1/ {print $4}')
+				if [[ $vpndevice ]] ; then
+					vpnip=$(ifconfig "$vpndevice" 2>/dev/null | grep "inet " | awk '{print $2}')
+					! [[ $vpnip ]] && vpnip="-"
+				else
+					vpndevice="-"
+					vpnip="-"
+				fi
+			fi
+			if $localdev ; then
+				localip=$(ipconfig getifaddr "$localdevice")
+				if ! [[ $localip ]] ; then
+					localip=$(ifconfig "$localdevice" 2>/dev/null | grep "inet " | awk '{print $2}')
+					! [[ $localip ]] && localip="-"
+				fi
+			else
+				localip="127.0.0.1"
+			fi
+			if $rloc ; then
+				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
+				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
+					if ! [[ $rcountry ]] ; then
+						rcoord="-"
+					else
+						rcoord="- ($rcountry)"
+					fi
+				else
+					if ! [[ $rcountry ]] ; then
+						rcoord="$rlat $rlong (-)"
+					else
+						rcoord="$rlat $rlong ($rcountry)"
+					fi
+				fi
+			fi
+			if $openvpn ; then
+				if $rloc ; then
+					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nLocation:\t$rcoord\nOpenVPN device:\t$vpndevice\nOpenVPN IP:\t$vpnip\nLocal IP:\t$localip"
+				else
+					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nOpenVPN device:\t$vpndevice\nOpenVPN IP:\t$vpnip\nLocal IP:\t$localip"
+				fi
+			else
+				if $rloc ; then
+					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nLocation:\t$rcoord\nLocal IP:\t$localip"
+				else
+					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nLocal IP:\t$localip"
+				fi
+			fi
+		else
+			echo -e "Public IP:\tLocal IP:\t$localip"
+		fi
+	fi
+}
+
+_dns () {
+	nameservers=$(scutil --dns 2>/dev/null | awk '/^DNS configuration$/,/^DNS configuration \(for scoped queries\)$/' | awk '/^DNS configuration$/,/ \(Not Reachable\)$/' | grep "nameserver\[" | sort | awk '!a[$0]++')
+	if $localdev ; then
+		localdnsip=$(ipconfig getoption "$localdevice" domain_name_server 2>/dev/null)
+		! [[ $localdnsip ]] && localdnsip="-"
+	else
+		localdnsip="-"
+	fi
+	if ! $offline ; then
+		dnsip=$(dig whoami.akamai.net +short 2>/dev/null)
+		if [[ $dnsip ]] ; then
+			dnsname=$(dig +short -x "$dnsip" 2>/dev/null | sed 's/\.$//' | grep -v "^$")
+			! [[ $dnsname ]] && dnsname="-"
+			dnswhoisraw=$(whois "$dnsip" 2>/dev/null)
+			dnsorg=$(echo "$dnswhoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs | grep -v "^$")
+			if ! [[ $dnsorg ]] ; then
+				dnsorg=$(echo "$dnswhoisraw" | grep "^descr:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs | grep -v "^$")
+			fi
+			! [[ $dnsorg ]] && dnsorg="-"
+			if $rloc ; then
+				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
+				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
+					if ! [[ $rcountry ]] ; then
+						dnsrcoord="-"
+					else
+						dnsrcoord="- ($rcountry)"
+					fi
+				else
+					if ! [[ $rcountry ]] ; then
+						dnsrcoord="$rlat $rlong (-)"
+					else
+						dnsrcoord="$rlat $rlong ($rcountry)"
+					fi
+				fi
+			fi
+		else
+			dnsip="-"
+		fi
+		if $rloc ; then
+			echo -e "DNS IP:\t\t$dnsip\nDNS Name:\t$dnsname\nOrganization:\t$dnsorg\nLocation:\t$dnsrcoord"
+		else
+			echo -e "DNS IP:\t\t$dnsip\nDNS Name:\t$dnsname\nOrganization:\t$dnsorg"
+		fi
+	fi
+	if [[ $nameservers ]] ; then
+		count=1
+		while read -r nsip
+		do
+			! [[ $nsip ]] && nsip="[error]"
+			if [[ $count -lt 10 ]] ; then
+				dcount="0$count"
+			else
+				dcount="$count"
+			fi
+			echo -e "DNS #$dcount:\t$nsip"
+			((count++))
+		done < <(echo "$nameservers" | awk '{print $NF}')
+	else
+		echo -e "Name servers:\t-"
+	fi
+	echo -e "Local DNS:\t$localdnsip"
+}
+
+_geo () {
+	geoloc_all=$(osascript 2>/dev/null <<EOG
+use framework "CoreLocation"
+use framework "Foundation"
+use scripting additions
+
+property this : a reference to the current application
+property nil : a reference to missing value
+property _1 : a reference to reference
+
+property CLLocationManager : a reference to CLLocationManager of this
+property kCLLocationAccuracyThreeKilometers : a reference to 3000.0
+--------------------------------------------------------------------------------
+property running : false
+property result : missing value -- Lat./long. or error description
+property number : 0 -- Error code
+property seconds : 10 -- Maximum time to allow script to run
+--------------------------------------------------------------------------------
+# IMPLEMENTATION:
+my performSelectorOnMainThread:"getLocation" withObject:nil waitUntilDone:true
+return my result
+--------------------------------------------------------------------------------
+# HANDLERS & SCRIPT OBJECTS:
+to getLocation()
+    set locationManager to CLLocationManager's new()
+
+    locationManager's setDelegate:me
+    locationManager's setDesiredAccuracy:kCLLocationAccuracyThreeKilometers
+
+    set my running to true
+    set started to current date
+
+    locationManager's startUpdatingLocation()
+
+    repeat while my running
+        delay 0.5
+        if (current date) - started > my seconds then exit repeat
+    end repeat
+end getLocation
+
+on locationManager:locationManager didUpdateLocations:locations
+    local locationManager, locations
+
+    locationManager's stopUpdatingLocation()
+
+    set my running to false
+    set my result to (locations's valueForKey:"coordinate") as record
+end locationManager:didUpdateLocations:
+
+on locationManager:locationManager didFailWithError:err
+    local locationManager, err
+
+    tell err's code()
+        set my number to it
+        set my result to item (it + 1) in my enum's kCLError
+        if it ≠ 0 then set my running to false
+    end tell
+end locationManager:didFailWithError:
+
+script enum
+    property kCLError : {¬
+        "Location Unknown", ¬
+        "Denied", ¬
+        "Network", ¬
+        "Heading Failure", ¬
+        "Region Monitoring Denied", ¬
+        "Region Monitoring Failure", ¬
+        "Region Monitoring Setup Delayed", ¬
+        "Region Monitoring Response Delayed", ¬
+        "Geocode Found No Result", ¬
+        "Geocode Found Partial Result", ¬
+        "Geocode Canceled", ¬
+        "Deferred Failed", ¬
+        "Deferred Not Updating Location", ¬
+        "Deferred Accuracy Too Low", ¬
+        "Deferred Distance Filtered", ¬
+        "Deferred Canceled", ¬
+        "Ranging Unavailable", ¬
+        "Ranging Failure"}
+    property CLAuthorizationStatus : {¬
+        "Not Determined", ¬
+        "Restricted", ¬
+        "Denied", ¬
+        "Authorized (Always)", ¬
+        "Authorized When In Use"}
+end script
+---------------------------------------------------------------------------❮END❯
+EOG
+	)
+	geo_error=false
+	if ! [[ $geoloc_all ]] ; then
+		geoloc_all=$(CoreLocationCLI 2>/dev/null)
+		if ! [[ $geoloc_all ]] ; then
+			echo -e "Geolocation:\t-"
+			geo_error=true
+		else
+			latitude=$(echo "$geoloc_all" | awk '{print $1}')
+			longitude=$(echo "$geoloc_all" | awk '{print $2}')
+			echo -e "Geolocation:\t$latitude $longitude"
+		fi
+	else
+		geoloc_raw=$(echo "$geoloc_all" | awk -F"," '{print $1}')
+		latitude=$(echo "$geoloc_raw" | awk -F":" '{print $2}')
+		if ! [[ $latitude ]] ; then
+			echo -e "Geolocation:\t-"
+			geo_error=true
+		else
+			longitude=$(echo "$geoloc_all" | awk -F":" '{print $3}')
+			if ! [[ $longitude ]] ; then
+				echo -e "Geolocation:\t-"
+				geo_error=true
+			else
+				echo -e "Geolocation:\t$latitude $longitude"
+			fi
+		fi
+	fi
+}
+
+
+_help () {
+	read -d '' helpdoc <<"EOH"
+myip [ARG(s)]
+
+	ip	:	public IP only
+
+	net	:	public & local IPs and related info
+	dns	:	public & local DNS IPs, local resolvers & related info
+	loc	:	coordinates & country of public IPs (only with 'net' or 'dns')
+	geo	:	local geolocation (latitude & longitude)
+	addr	:	local geolocation (address)
+	map	:	print URLs to open local geolcation in Apple Maps, OSM or Google Maps
+
+	all	:	all of the above
+	
+	msg	:	share geolocation & address via Apple Messages (requires terminal-share CLI)
+	mail	:	share geolocation & address via Apple Mail (requires terminal-share CLI)
+
+	version	:	version number
+	help	:	this help document
+EOH
+	echo "$helpdoc"
+}
+
+simpleip=false
+fullip=false
+dnsinfo=false
+rloc=false
+lgeo=false
+maps=false
+address=false
+share=false
+message=false
+mail=false
+
+if ! [[ $1 ]] ; then
+	simpleip=true
+else
+	argsn="$#"
+	while test -n "$1"
+	do
+		case "$1" in
+			help)
+				if [[ $argsn -eq 1 ]] ; then
+					_help
+					exit 0
+				else
+					shift
+				fi
+				;;
+			version)
+				if [[ $argsn -eq 1 ]] ; then
+					echo "$process $vno"
+					exit 0
+				else
+					shift
+				fi
+				;;
+			ip)
+				simpleip=true
+				if [[ $argsn -eq 1 ]] ; then
+					break
+				else
+					shift
+				fi
+				;;
+			all)
+				simpleip=false
+				fullip=true
+				dnsinfo=true
+				rloc=true
+				lgeo=true
+				address=true
+				maps=true
+				shift
+				;;
+			net)
+				simpleip=false
+				fullip=true
+				shift
+				;;
+			dns)
+				dnsinfo=true
+				shift
+				;;
+			loc)
+				if [[ $argsn -eq 1 ]] ; then
+					_help
+					exit 0
+				else
+					rloc=true
+					shift
+				fi
+				;;
+			geo)
+				lgeo=true
+				shift
+				;;
+			addr)
+				lgeo=true
+				address=true
+				shift
+				;;
+			map)
+				lgeo=true
+				maps=true
+				shift
+				;;
+			msg)
+				share=true
+				lgeo=true
+				address=true
+				maps=true
+				message=true
+				email=false
+				shift
+				;;
+			mail)
+				share=true
+				lgeo=true
+				address=true
+				maps=true
+				message=false
+				email=true
+				shift
+				;;
+			*)
+				_help
+				exit 0
+				;;
+		esac
+	done
+fi
+
+localdev=true
+localdevice=$(route get 0.0.0.0 2>&1 | awk -F": " '/interface:/{print $2}')
+if ! [[ $localdevice ]] ; then
+	echo "No route" >&2
+	localdev=false
+	localdevice="-"
+fi
+service=$(networksetup -listnetworkserviceorder 2>/dev/null | grep -B1 "Device: $localdevice)$" | head -1 | awk -F")" '{print substr($0, index($0,$2))}' | xargs)
+! [[ $service ]] && service="-"
+offline=false
+if ! ping -q -c 1 1.1.1.1 &>/dev/null ; then
+	echo "Offline" >&2
+	offline=true
+fi
+if $simpleip ; then
+	publicip=$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null)
+	! [[ $publicip ]] && publicip="-"
+	echo -e "Public IP:\t$publicip"
+fi
+openvpn=false
+if ! $offline ; then
+	if ps aux | grep openvpn | grep root &>/dev/null ; then
+		openvpn=true
+	fi
+fi
+
+if $fullip ; then
+	_ip
+	echo -e "Device:\t\t$localdevice"
+	echo -e "Service:\t$service"
+	if $dnsinfo ; then
+		_dns
+	fi
+else
+	if $dnsinfo ; then
+		_dns
+		echo -e "Device:\t\t$localdevice"
+		echo -e "Service:\t$service"
+	fi
+fi
+
+if $lgeo ; then
+	if [[ $(/System/Library/PrivateFrameworks/Apple80211.framework/Versions/A/Resources/airport -I 2>/dev/null) == "AirPort: Off" ]] ; then
+		echo -e "Geolocation:\t-"
+	else
+		_geo
+		if $address ; then
+			ccount=0
+			while true
+			do
+				[[ $ccount -eq 3 ]] && break
+				addrinfo=$(curl -sL --connect-timeout 10 --max-time 10 -X POST -d locate="$latitude,$longitude" -d geoit="XML" "https://geocode.xyz" 2>/dev/null)
+				if echo "$addrinfo" | head -1 | grep -q "geodata" &>/dev/null ; then
+					break
+				else
+					addrinfo=""
+				fi
+				((ccount++))
+				sleep 2
+			done
+			if ! [[ $addrinfo ]] ; then
+				fulladdress="-"
+			else
+				city=$(echo "$addrinfo" | grep "\<city\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+			 	if ! [[ $city ]] ; then
+			 		fulladdress="-"
+			 	else
+			 		state=$(echo "$addrinfo" | grep "\<region\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+			 		if ! [[ $state ]] ; then
+			 			state=$(echo "$addrinfo" | grep "\<state\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+			 			! [[ $state ]] && state="-"
+			 		fi
+					country=$(echo "$addrinfo" | grep "\<country\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+					! [[ $country ]] && country="-"
+					postal=$(echo "$addrinfo" | grep "\<postal\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+					! [[ $postal ]] && postal="-"
+					stnumber=$(echo "$addrinfo" | grep "\<stnumber\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+					! [[ $stnumber ]] && stnumber="-"
+					staddress=$(echo "$addrinfo" | grep "\<staddress\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
+					! [[ $staddress ]] && staddress="-"
+					fulladdr="$stnumber $staddress, $city $postal, $state, $country"
+				fi
+			fi
+			echo -e "Address:\t$fulladdr"
+		fi
+		if $maps && ! $geo_error ; then
+			am_url="https://maps.apple.com/?q=$latitude,$longitude&t=m"
+			gm_url="https://maps.google.com/maps?ll=$latitude,$longitude&q=$latitude,$longitude&hl=en&t=m&z=19"
+			osm_url="https://www.openstreetmap.org/?mlat=$latitude&mlon=$longitude&zoom=19&layers=M"
+			echo -e "Apple Maps:\t$am_url"
+			echo -e "Google Maps:\t$gm_url"
+			echo -e "OSM:\t\t$osm_url"
+		fi
+		if $share ; then
+			if ! command -v terminal-share &>/dev/null ; then
+				echo -e "ERROR:\tSharing functionality requires terminal-share: https://github.com/mattt/terminal-share"
+			else
+				sharetext="I am currently here:\n\nAddress: $fulladdr\nCoordinates: $latitude,$longitude\n\nApple Maps: $am_url\nGoogle Maps: $gm_url\nOpenStreetMap: $osm_url\n\nShared with: $process v$vno"
+				finalsharetext=$(echo -e "\"$sharetext\"")
+				if $message ; then
+					terminal-share -service message -text "$finalsharetext" 2>/dev/null &
+				elif $email ; then
+					terminal-share -service email -text "$finalsharetext" 2>/dev/null &
+				fi
+			fi
+		fi
+	fi
+fi
+
+exit 0
