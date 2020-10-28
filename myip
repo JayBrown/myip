@@ -1,12 +1,12 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# myip v0.3
+# myip v0.3.1
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
 
 process="myip"
-vno="0.3"
+vno="0.3.1"
 
 _ip () {
 	if $offline ; then
@@ -79,14 +79,14 @@ _ip () {
 			if ps aux | grep openvpn | grep root &>/dev/null ; then
 				vpndevice=$(netstat -nr | awk '/^0\/1/ {print $4}')
 				if [[ $vpndevice ]] ; then
-					echo -e "OpenVPN device:\t$vpndevice"
-					echo -e "OpenVPN IP:\t$vpnip"
+					echo -e "OpenVPN:\t$vpndevice"
 					vpnip=$(ifconfig "$vpndevice" 2>/dev/null | grep "inet " | awk '{print $2}')
 					! [[ $vpnip ]] && vpnip="-"
+					echo -e "OpenVPN IP:\t$vpnip"
 				else
 					vpndevice="-"
 					vpnip="-"
-					echo -e "OpenVPN device:\t$vpndevice\nOpenVPN IP:\t$vpnip"
+					echo -e "OpenVPN:\t$vpndevice\nOpenVPN IP:\t$vpnip"
 				fi
 			fi
 		else
@@ -151,7 +151,17 @@ _local () {
 
 _dns () {
 	if ! $offline ; then
-		dnsip=$(dig whoami.akamai.net +short 2>/dev/null)
+		dcount=0
+		dsleep=1
+		while true
+		do
+			[[ $dcount -eq 3 ]] && break
+			dnsip=$(dig whoami.akamai.net +short 2>/dev/null)
+			[[ $dnsip ]] && break
+			sleep "$dsleep"
+			((dcount++))
+			((dsleep++))
+		done
 		if [[ $dnsip ]] ; then
 			echo -e "DNS IP:\t\t$dnsip"
 			dnsname=$(dig +short -x "$dnsip" 2>/dev/null | sed 's/\.$//' | grep -v "^$")
@@ -165,7 +175,8 @@ _dns () {
 			! [[ $dnsorg ]] && dnsorg="-"
 			echo -e "Provider:\t$dnsorg"
 			if $rloc ; then
-				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
+				$fullip && sleep 1
+				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$dnsip?fields=193" 2>/dev/null)
 				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
 					if ! [[ $rcountry ]] ; then
 						dnsrcoord="-"
