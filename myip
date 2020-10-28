@@ -1,48 +1,64 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# myip v0.1
+# myip v0.3
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
 
 process="myip"
-vno="0.1"
+vno="0.3"
 
 _ip () {
-	localip=$(ipconfig getifaddr "$localdevice" 2>/dev/null)
-	! [[ $localip ]] && localip="-"
 	if $offline ; then
-		echo -e "Public IP:\tLocal IP:\t$localip"
+		echo -e "Public IP:\t-"
 	else
 		publicip=$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null)
 		if [[ $publicip ]] ; then
+			echo -e "Public IP:\t$publicip"
 			publicname=$(dig +short -x "$publicip" 2>/dev/null | sed 's/\.$//')
 			! [[ $publicname ]] && publicname="-"
+			echo -e "Public Name:\t$publicname"
 			whoisraw=$(whois "$publicip" 2>/dev/null)
-			publicorg=$(echo "$whoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
+			publicorg=$(echo "$whoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | head -1 | xargs)
 			if ! [[ $publicorg ]] ; then
-				publicorg=$(echo "$whoisraw" | grep "^descr:" | grep -v "^$" | sort | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
+				publicorg=$(echo "$whoisraw" | grep "^descr:" | grep -v "^$" | sort | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | head -1 | xargs)
 			fi
 			! [[ $publicorg ]] && publicorg="-"
-			if $openvpn ; then
-				vpndevice=$(netstat -nr | awk '/^0\/1/ {print $4}')
-				if [[ $vpndevice ]] ; then
-					vpnip=$(ifconfig "$vpndevice" 2>/dev/null | grep "inet " | awk '{print $2}')
-					! [[ $vpnip ]] && vpnip="-"
+			echo -e "Provider:\t$publicorg"
+			mcount=0
+			secs=3
+			while true
+			do
+				[[ $mcount -eq 3 ]] && break
+				mdns_raw=$((dns-sd -X 2>&1) & pid=$! ; (sleep "$secs" && kill -9 $pid 2>/dev/null))
+				mdnsip=$(echo "$mdns_raw" | grep -v -e "^DATE" -e "STARTING" -e "^Timestamp" | sed -n '$p' | awk '{print $3}')
+				if [[ $mdnsip ]] ; then
+					break
 				else
-					vpndevice="-"
-					vpnip="-"
+					sleep 1
+					((mcount++))
+					((secs++))
 				fi
+			done
+			! [[ $mdnsip ]] && mdnsip="-"
+			[[ $mdnsip == "0.0.0.0" ]] && mdnsip="0.0.0.0 [tunnel]"
+			echo -e "mDNS IP:\t$mdnsip"
+			gateway=$(echo "$routestat" | awk '/gateway:/ {print $2}')
+			if ! [[ $gateway ]] ; then
+				arp_raw=$(arp -a 2>/dev/null | head -1)
+				gateway=$(echo "$arp_raw" | awk -F"[)(]" '{print $1}' | xargs)
 			fi
-			if $localdev ; then
-				localip=$(ipconfig getifaddr "$localdevice")
-				if ! [[ $localip ]] ; then
-					localip=$(ifconfig "$localdevice" 2>/dev/null | grep "inet " | awk '{print $2}')
-					! [[ $localip ]] && localip="-"
-				fi
+			if ! [[ $gateway ]] ; then
+				routerip="[no gateway]"
 			else
-				localip="127.0.0.1"
+				if [[ $gateway == "fritz.box" ]] ; then
+					routerip=$(curl "http://fritz.box:49000/igdupnp/control/WANIPConn1" -H "Content-Type: text/xml; charset="utf-8"" -H "SoapAction:urn:schemas-upnp-org:service:WANIPConnection:1#GetExternalIPAddress" -d "<?xml version='1.0' encoding='utf-8'?> <s:Envelope s:encodingStyle='http://schemas.xmlsoap.org/soap/encoding/' xmlns:s='http://schemas.xmlsoap.org/soap/envelope/'> <s:Body> <u:GetExternalIPAddress xmlns:u='urn:schemas-upnp-org:service:WANIPConnection:1' /> </s:Body> </s:Envelope>" -s \
+						| grep -Eo '\<[[:digit:]]{1,3}(\.[[:digit:]]{1,3}){3}\>')
+				else
+					routerip="[AP not supported]"
+				fi
 			fi
+			echo -e "Router IP:\t$routerip"
 			if $rloc ; then
 				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
 				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
@@ -53,50 +69,101 @@ _ip () {
 					fi
 				else
 					if ! [[ $rcountry ]] ; then
-						rcoord="$rlat $rlong (-)"
+						rcoord="$rlat,$rlong (-)"
 					else
-						rcoord="$rlat $rlong ($rcountry)"
+						rcoord="$rlat,$rlong ($rcountry)"
 					fi
 				fi
+				echo -e "Location:\t$rcoord"
 			fi
-			if $openvpn ; then
-				if $rloc ; then
-					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nLocation:\t$rcoord\nOpenVPN device:\t$vpndevice\nOpenVPN IP:\t$vpnip\nLocal IP:\t$localip"
+			if ps aux | grep openvpn | grep root &>/dev/null ; then
+				vpndevice=$(netstat -nr | awk '/^0\/1/ {print $4}')
+				if [[ $vpndevice ]] ; then
+					echo -e "OpenVPN device:\t$vpndevice"
+					echo -e "OpenVPN IP:\t$vpnip"
+					vpnip=$(ifconfig "$vpndevice" 2>/dev/null | grep "inet " | awk '{print $2}')
+					! [[ $vpnip ]] && vpnip="-"
 				else
-					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nOpenVPN device:\t$vpndevice\nOpenVPN IP:\t$vpnip\nLocal IP:\t$localip"
-				fi
-			else
-				if $rloc ; then
-					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nLocation:\t$rcoord\nLocal IP:\t$localip"
-				else
-					echo -e "Public IP:\t$publicip\nPublic Name:\t$publicname\nOrganization:\t$publicorg\nLocal IP:\t$localip"
+					vpndevice="-"
+					vpnip="-"
+					echo -e "OpenVPN device:\t$vpndevice\nOpenVPN IP:\t$vpnip"
 				fi
 			fi
 		else
-			echo -e "Public IP:\tLocal IP:\t$localip"
+			echo -e "Public IP:\t-"
 		fi
 	fi
 }
 
-_dns () {
-	nameservers=$(scutil --dns 2>/dev/null | awk '/^DNS configuration$/,/^DNS configuration \(for scoped queries\)$/' | awk '/^DNS configuration$/,/ \(Not Reachable\)$/' | grep "nameserver\[" | sort | awk '!a[$0]++')
+_local () {
 	if $localdev ; then
-		localdnsip=$(ipconfig getoption "$localdevice" domain_name_server 2>/dev/null)
-		! [[ $localdnsip ]] && localdnsip="-"
+		localip=$(ipconfig getifaddr "$localdevice")
+		if ! [[ $localip ]] ; then
+			localip=$(ifconfig "$localdevice" 2>/dev/null | grep "inet " | awk '{print $2}')
+			! [[ $localip ]] && localip="-"
+		fi
 	else
-		localdnsip="-"
+		localip="127.0.0.1"
 	fi
+	echo -e "Local IP:\t$localip"
+	nhost=$(scutil --get HostName 2>/dev/null)
+	! [[ $nhost ]] && nhost="-"
+	echo -e "Host:\t\t$nhost"
+	ncomp=$(scutil --get ComputerName 2>/dev/null)
+	! [[ $ncomp ]] && ncomp="-"
+	echo -e "Computer:\t$ncomp"
+	nlocalhost=$(scutil --get LocalHostName 2>/dev/null)
+	! [[ $nlocalhost ]] && nlocalhost="-"
+	echo -e "LocalHost:\t$nlocalhost"
+	macaddr=$(networksetup -getmacaddress "$localdevice" | awk '/Ethernet/ {print $3}')
+	! [[ $macaddr ]] && macaddr="-"
+	echo -e "MAC:\t\t$macaddr"
+	if ! [[ $arp_raw ]] ; then
+		arp_raw=$(arp -a 2>/dev/null | head -1)
+	fi
+	if ! [[ $gateway ]] ; then
+		gateway=$(echo "$arp_raw" | awk -F"[)(]" '{print $1}' | xargs)
+	fi
+	! [[ $gateway ]] && gateway="-"
+	echo -e "Gateway:\t$gateway"
+	apaddr=$(echo "$arp_raw" | awk -F"[)(]" '{print $2}')
+	! [[ $apaddr ]] && apaddr="-"
+	echo -e "Gateway IP:\t$apaddr"
+	netbios=$(smbutil status -e "$apaddr" 2>/dev/null | awk -F": " '/^Server:/{print $2}')
+	! [[ $netbios ]] && netbios="-"
+	echo -e "NetBIOS:\t$netbios"
+	wifi_raw=$(/System/Library/PrivateFrameworks/Apple80211.framework/Versions/A/Resources/airport -I 2>/dev/null | grep "SSID:")
+	if [[ $wifi_raw ]] ; then
+		ssid=$(echo "$wifi_raw" | grep -v "BSSID:" | awk -F": " '/SSID:/{print $NF}')
+		! [[ $ssid ]] && ssid="-"
+		bssid=$(echo "$wifi_raw" | awk -F": " '/BSSID:/{print $NF}')
+		! [[ $bssid ]] && bssid="-"
+	else
+		ssid="-"
+		bssid="-"
+	fi
+	echo -e "SSID:\t\t$ssid"
+	echo -e "BSSID:\t\t$bssid"
+	apether=$(echo "$arp_raw" | awk -F")" '{print $NF}' | sed -e "s/^ at //" -e "s/ on .*//" | xargs)
+	! [[ $apether ]] && apether="-"
+	echo -e "AP MAC:\t\t$apether"
+}
+
+_dns () {
 	if ! $offline ; then
 		dnsip=$(dig whoami.akamai.net +short 2>/dev/null)
 		if [[ $dnsip ]] ; then
+			echo -e "DNS IP:\t\t$dnsip"
 			dnsname=$(dig +short -x "$dnsip" 2>/dev/null | sed 's/\.$//' | grep -v "^$")
 			! [[ $dnsname ]] && dnsname="-"
+			echo -e "DNS Name:\t$dnsname"
 			dnswhoisraw=$(whois "$dnsip" 2>/dev/null)
-			dnsorg=$(echo "$dnswhoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs | grep -v "^$")
+			dnsorg=$(echo "$dnswhoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | head -1 | xargs | grep -v "^$")
 			if ! [[ $dnsorg ]] ; then
-				dnsorg=$(echo "$dnswhoisraw" | grep "^descr:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | xargs | grep -v "^$")
+				dnsorg=$(echo "$dnswhoisraw" | grep "^descr:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | head -1 | xargs | grep -v "^$")
 			fi
 			! [[ $dnsorg ]] && dnsorg="-"
+			echo -e "Provider:\t$dnsorg"
 			if $rloc ; then
 				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
 				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
@@ -107,21 +174,18 @@ _dns () {
 					fi
 				else
 					if ! [[ $rcountry ]] ; then
-						dnsrcoord="$rlat $rlong (-)"
+						dnsrcoord="$rlat,$rlong (-)"
 					else
-						dnsrcoord="$rlat $rlong ($rcountry)"
+						dnsrcoord="$rlat,$rlong ($rcountry)"
 					fi
 				fi
+				echo -e "Location:\t$dnsrcoord"
 			fi
 		else
-			dnsip="-"
-		fi
-		if $rloc ; then
-			echo -e "DNS IP:\t\t$dnsip\nDNS Name:\t$dnsname\nOrganization:\t$dnsorg\nLocation:\t$dnsrcoord"
-		else
-			echo -e "DNS IP:\t\t$dnsip\nDNS Name:\t$dnsname\nOrganization:\t$dnsorg"
+			echo -e "DNS IP:\t\t-"
 		fi
 	fi
+	nameservers=$(scutil --dns 2>/dev/null | awk '/^DNS configuration$/,/^DNS configuration \(for scoped queries\)$/' | awk '/^DNS configuration$/,/ \(Not Reachable\)$/' | grep "nameserver\[" | sort | awk '!a[$0]++')
 	if [[ $nameservers ]] ; then
 		count=1
 		while read -r nsip
@@ -137,6 +201,12 @@ _dns () {
 		done < <(echo "$nameservers" | awk '{print $NF}')
 	else
 		echo -e "Name servers:\t-"
+	fi
+	if $localdev ; then
+		localdnsip=$(ipconfig getoption "$localdevice" domain_name_server 2>/dev/null)
+		! [[ $localdnsip ]] && localdnsip="-"
+	else
+		localdnsip="-"
 	fi
 	echo -e "Local DNS:\t$localdnsip"
 }
@@ -239,7 +309,7 @@ EOG
 		else
 			latitude=$(echo "$geoloc_all" | awk '{print $1}')
 			longitude=$(echo "$geoloc_all" | awk '{print $2}')
-			echo -e "Geolocation:\t$latitude $longitude"
+			echo -e "Geolocation:\t$latitude,$longitude"
 		fi
 	else
 		geoloc_raw=$(echo "$geoloc_all" | awk -F"," '{print $1}')
@@ -253,7 +323,7 @@ EOG
 				echo -e "Geolocation:\t-"
 				geo_error=true
 			else
-				echo -e "Geolocation:\t$latitude $longitude"
+				echo -e "Geolocation:\t$latitude,$longitude"
 			fi
 		fi
 	fi
@@ -267,6 +337,7 @@ myip [ARG(s)]
 	ip	:	public IP only
 
 	net	:	public & local IPs and related info
+	local	:	additional local data like hostname, MAC addresses, SSID etc.
 	dns	:	public & local DNS IPs, local resolvers & related info
 	loc	:	coordinates & country of public IPs (only with 'net' or 'dns')
 	geo	:	local geolocation (latitude & longitude)
@@ -286,6 +357,7 @@ EOH
 
 simpleip=false
 fullip=false
+localdata=false
 dnsinfo=false
 rloc=false
 lgeo=false
@@ -293,7 +365,7 @@ maps=false
 address=false
 share=false
 message=false
-mail=false
+email=false
 
 if ! [[ $1 ]] ; then
 	simpleip=true
@@ -329,6 +401,7 @@ else
 			all)
 				simpleip=false
 				fullip=true
+				localdata=true
 				dnsinfo=true
 				rloc=true
 				lgeo=true
@@ -339,6 +412,10 @@ else
 			net)
 				simpleip=false
 				fullip=true
+				shift
+				;;
+			local)
+				localdata=true
 				shift
 				;;
 			dns)
@@ -395,9 +472,10 @@ else
 fi
 
 localdev=true
-localdevice=$(route get 0.0.0.0 2>&1 | awk -F": " '/interface:/{print $2}')
+routestat=$(route get 0.0.0.0 2>&1)
+localdevice=$(echo "$routestat" | awk -F": " '/interface:/{print $2}')
 if ! [[ $localdevice ]] ; then
-	echo "No route" >&2
+	echo "ERROR: no route" >&2
 	localdev=false
 	localdevice="-"
 fi
@@ -405,7 +483,7 @@ service=$(networksetup -listnetworkserviceorder 2>/dev/null | grep -B1 "Device: 
 ! [[ $service ]] && service="-"
 offline=false
 if ! ping -q -c 1 1.1.1.1 &>/dev/null ; then
-	echo "Offline" >&2
+	echo "ERROR: offline" >&2
 	offline=true
 fi
 if $simpleip ; then
@@ -413,25 +491,31 @@ if $simpleip ; then
 	! [[ $publicip ]] && publicip="-"
 	echo -e "Public IP:\t$publicip"
 fi
-openvpn=false
-if ! $offline ; then
-	if ps aux | grep openvpn | grep root &>/dev/null ; then
-		openvpn=true
-	fi
-fi
 
 if $fullip ; then
 	_ip
 	echo -e "Device:\t\t$localdevice"
 	echo -e "Service:\t$service"
+	if $localdata ; then
+		_local
+	fi
 	if $dnsinfo ; then
 		_dns
 	fi
 else
-	if $dnsinfo ; then
-		_dns
+	if $localdata ; then
 		echo -e "Device:\t\t$localdevice"
 		echo -e "Service:\t$service"
+		_local
+		if $dnsinfo ; then
+			_dns
+		fi
+	else
+		if $dnsinfo ; then
+			_dns
+			echo -e "Device:\t\t$localdevice"
+			echo -e "Service:\t$service"
+		fi
 	fi
 fi
 
@@ -455,11 +539,11 @@ if $lgeo ; then
 				sleep 2
 			done
 			if ! [[ $addrinfo ]] ; then
-				fulladdress="-"
+				fulladdr="-"
 			else
 				city=$(echo "$addrinfo" | grep "\<city\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
 			 	if ! [[ $city ]] ; then
-			 		fulladdress="-"
+			 		fulladdr="-"
 			 	else
 			 		state=$(echo "$addrinfo" | grep "\<region\>" | awk '!a[$0]++' | head -1 | awk -F"[><]" '{print $3}')
 			 		if ! [[ $state ]] ; then
@@ -501,6 +585,10 @@ if $lgeo ; then
 			fi
 		fi
 	fi
+fi
+
+if $fullip ; then
+	echo -e "Details:\thttps://dnslytics.com/ip/$publicip"
 fi
 
 exit 0

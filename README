@@ -1,6 +1,6 @@
 myip
 
-macOS CLI (shell script) to print public & local IP and DNS information, geolocation, address, map links, and share the information via Messages or Mail
+macOS CLI (shell script) to print public & local IP, network and DNS information, geolocation, address, map links, and share location information via Messages or Mail
 
 
 myip [ARG(s)]
@@ -8,6 +8,7 @@ myip [ARG(s)]
 	ip		:	public IP only
 
 	net		:	public & local IPs and related info
+	local	:	additional local data like hostname, MAC addresses, SSID etc.
 	dns		:	public & local DNS IPs, local resolvers & related info
 	loc		:	coordinates & country of public IPs (only with 'net' or 'dns')
 	geo		:	local geolocation (latitude & longitude)
