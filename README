@@ -7,7 +7,7 @@ myip [--ip=<IP address>] [ARG(s)]
 
 	OPTION
 	
-	--ip=	:	input your public IP, if it is already known
+	--ip=		:	input your public IP, if it is already known
 
 	OUTPUT ARGUMENTS
 
