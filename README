@@ -3,13 +3,19 @@ myip
 macOS CLI (shell script) to print public & local IP, network and DNS information, geolocation, address, map links, and share location information via Messages or Mail
 
 
-myip [ARG(s)]
+myip [--ip=<IP address>] [ARG(s)]
+
+	OPTION
+	
+	--ip=	:	input your public IP, if it is already known
+
+	OUTPUT ARGUMENTS
 
 	ip		:	public IP only
 
-	net		:	public & local IPs and related info
+	net		:	public IPs and related info incl. NAT-PMP
 	bt		:	torrent IP address (requires transmission CLI & an IP tracking torrent)
-	local		:	additional local data like hostname, MAC addresses, SSID etc.
+	ether		:	additional local data like network IPs, hostname, MAC addresses, SSID etc.
 	dns		:	public & local DNS IPs, local resolvers & related info
 	loc		:	coordinates & country of public IPs (only with 'net' or 'dns')
 	geo		:	local geolocation (latitude & longitude)
@@ -17,6 +23,8 @@ myip [ARG(s)]
 	map		:	print URLs to open local geolcation in Apple Maps, OSM or Google Maps
 
 	all		:	all of the above
+	
+	OTHER ARGUMENTS
 
 	msg		:	share geolocation & address via Apple Messages (requires terminal-share CLI)
 	mail		:	share geolocation & address via Apple Mail (requires terminal-share CLI)
@@ -27,7 +35,7 @@ myip [ARG(s)]
 
 Optional requisites:
 
-terminal-share: https://github.com/mattt/terminal-share
-transmission-cli: https://transmissionbt.com – install manually or with: brew install transmission-cli
+(1) terminal-share: https://github.com/mattt/terminal-share
+(2) transmission-cli: https://transmissionbt.com – install manually or with: brew install transmission-cli
 
-supported tracking torrent available at: https://ipleak.net (manually add with transmission-remote)
+Supported tracking torrent available at: https://ipleak.net (manually add with transmission-remote)
