@@ -20,7 +20,7 @@ myip [--ip=<IP address>] [ARG(s)]
 	loc		:	coordinates & country of public IPs (only with 'net' or 'dns')
 	geo		:	local geolocation (latitude & longitude)
 	addr		:	local geolocation (address)
-	map		:	print URLs to open local geolcation in Apple Maps, OSM or Google Maps
+	map		:	print URLs to open local geolocation in Apple Maps, OSM or Google Maps
 
 	all		:	all of the above
 	
