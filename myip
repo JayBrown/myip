@@ -1,12 +1,12 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# myip v0.3.1
+# myip v0.4
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
 
 process="myip"
-vno="0.3.1"
+vno="0.4"
 
 _ip () {
 	if $offline ; then
@@ -25,6 +25,23 @@ _ip () {
 			fi
 			! [[ $publicorg ]] && publicorg="-"
 			echo -e "Provider:\t$publicorg"
+			if $rloc ; then
+				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
+				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
+					if ! [[ $rcountry ]] ; then
+						rcoord="-"
+					else
+						rcoord="- ($rcountry)"
+					fi
+				else
+					if ! [[ $rcountry ]] ; then
+						rcoord="$rlat,$rlong (-)"
+					else
+						rcoord="$rlat,$rlong ($rcountry)"
+					fi
+				fi
+				echo -e "Location:\t$rcoord"
+			fi
 			mcount=0
 			secs=3
 			while true
@@ -59,23 +76,6 @@ _ip () {
 				fi
 			fi
 			echo -e "Router IP:\t$routerip"
-			if $rloc ; then
-				IFS=$'\n' read -rd '' rcountry rlat rlong < <(curl -sL --connect-timeout 10 --max-time 10 "http://ip-api.com/line/$publicip?fields=193" 2>/dev/null)
-				if ! [[ $rlat ]] || ! [[ $rlong ]] ; then
-					if ! [[ $rcountry ]] ; then
-						rcoord="-"
-					else
-						rcoord="- ($rcountry)"
-					fi
-				else
-					if ! [[ $rcountry ]] ; then
-						rcoord="$rlat,$rlong (-)"
-					else
-						rcoord="$rlat,$rlong ($rcountry)"
-					fi
-				fi
-				echo -e "Location:\t$rcoord"
-			fi
 			if ps aux | grep openvpn | grep root &>/dev/null ; then
 				vpndevice=$(netstat -nr | awk '/^0\/1/ {print $4}')
 				if [[ $vpndevice ]] ; then
@@ -93,6 +93,64 @@ _ip () {
 			echo -e "Public IP:\t-"
 		fi
 	fi
+}
+
+_killbt () {
+	transmission-remote --exit &>/dev/null
+	sleep .5
+	if pgrep transmission-daemon &>/dev/null ; then
+		killall transmission-daemon &>/dev/null
+	fi
+}
+
+_torrent () {		
+	if ! command -v transmission-daemon &>/dev/null || ! command -v transmission-remote &>/dev/null ; then
+		echo -e "Torrent IP:\tERROR: transmission CLI missing!" >&2
+		_killbt
+		return
+	fi
+	if ! pgrep transmission-daemon &>/dev/null ; then
+		transmission-daemon &>/dev/null
+		if ! pgrep transmission-daemon &>/dev/null ; then
+			echo -e "Torrent IP:\tERROR launching transmission-daemon!" >&2
+			return
+		fi
+	fi
+	sleep 1
+	ipleakbt=$(transmission-remote -l 2>/dev/null | grep "ipleak\.net+torrent+detection$")
+	if ! [[ $ipleakbt ]] ; then
+		echo -e "Torrent IP:\tERROR: no magnet link found!" >&2
+		_killbt
+		return
+	fi
+	btn=$(echo "$ipleakbt" | awk '{print $1}' | sed 's/*$//')
+	if ! [[ $btn ]] ; then
+		echo -e "Torrent IP:\tERROR parsing IPLeak torrent!" >&2
+		_killbt
+		return 
+	fi
+	transmission-remote -t "$btn" -s &>/dev/null
+	sleep 1
+	btcount=0
+	btsleep=1
+	while true
+	do
+		[[ $btcount -eq 3 ]] && break
+		tinfo=$(transmission-remote -t "$btn" -i 2>/dev/null | grep "look https\:\/\/ipleak\.net for details\.$")
+		[[ $tinfo ]] && break
+		sleep "$btsleep"
+		((btsleep++))
+		((btcount++))
+	done
+	if ! [[ $tinfo ]] ; then
+		echo -e "Torrent IP:\tERROR: torrent info missing!" >&2
+		_killbt
+		return 
+	fi
+	torrentip=$(echo "$tinfo" | awk -F"IP:" '{print $2}' | awk -F"," '{print $1}')
+	! [[ $torrentip ]] && torrentip="-"
+	echo -e "Torrent IP:\t$torrentip"
+	_killbt
 }
 
 _local () {
@@ -348,6 +406,7 @@ myip [ARG(s)]
 	ip	:	public IP only
 
 	net	:	public & local IPs and related info
+	bt	:	torrent IP address (requires transmission CLI & an IP tracking torrent)
 	local	:	additional local data like hostname, MAC addresses, SSID etc.
 	dns	:	public & local DNS IPs, local resolvers & related info
 	loc	:	coordinates & country of public IPs (only with 'net' or 'dns')
@@ -368,6 +427,7 @@ EOH
 
 simpleip=false
 fullip=false
+torrent=false
 localdata=false
 dnsinfo=false
 rloc=false
@@ -412,6 +472,7 @@ else
 			all)
 				simpleip=false
 				fullip=true
+				torrent=true
 				localdata=true
 				dnsinfo=true
 				rloc=true
@@ -423,6 +484,10 @@ else
 			net)
 				simpleip=false
 				fullip=true
+				shift
+				;;
+			bt)
+				torrent=true
 				shift
 				;;
 			local)
@@ -505,6 +570,9 @@ fi
 
 if $fullip ; then
 	_ip
+	if $torrent ; then
+		_torrent
+	fi
 	echo -e "Device:\t\t$localdevice"
 	echo -e "Service:\t$service"
 	if $localdata ; then
@@ -514,9 +582,16 @@ if $fullip ; then
 		_dns
 	fi
 else
-	if $localdata ; then
+	if $torrent ; then
 		echo -e "Device:\t\t$localdevice"
 		echo -e "Service:\t$service"
+		_torrent
+	fi
+	if $localdata ; then
+		if ! $torrent ; then
+			echo -e "Device:\t\t$localdevice"
+			echo -e "Service:\t$service"
+		fi
 		_local
 		if $dnsinfo ; then
 			_dns
@@ -524,8 +599,10 @@ else
 	else
 		if $dnsinfo ; then
 			_dns
-			echo -e "Device:\t\t$localdevice"
-			echo -e "Service:\t$service"
+			if ! $torrent ; then
+				echo -e "Device:\t\t$localdevice"
+				echo -e "Service:\t$service"
+			fi
 		fi
 	fi
 fi
@@ -535,7 +612,7 @@ if $lgeo ; then
 		echo -e "Geolocation:\t-"
 	else
 		_geo
-		if $address ; then
+		if $address && ! $geo_error ; then
 			ccount=0
 			while true
 			do
@@ -582,9 +659,9 @@ if $lgeo ; then
 			echo -e "Google Maps:\t$gm_url"
 			echo -e "OSM:\t\t$osm_url"
 		fi
-		if $share ; then
+		if $share && ! $geo_error ; then
 			if ! command -v terminal-share &>/dev/null ; then
-				echo -e "ERROR:\tSharing functionality requires terminal-share: https://github.com/mattt/terminal-share"
+				echo -e "ERROR:\tSharing function requires terminal-share: https://github.com/mattt/terminal-share"
 			else
 				sharetext="I am currently here:\n\nAddress: $fulladdr\nCoordinates: $latitude,$longitude\n\nApple Maps: $am_url\nGoogle Maps: $gm_url\nOpenStreetMap: $osm_url\n\nShared with: $process v$vno"
 				finalsharetext=$(echo -e "\"$sharetext\"")

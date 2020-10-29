@@ -8,6 +8,7 @@ myip [ARG(s)]
 	ip		:	public IP only
 
 	net		:	public & local IPs and related info
+	bt		:	torrent IP address (requires transmission CLI & an IP tracking torrent)
 	local		:	additional local data like hostname, MAC addresses, SSID etc.
 	dns		:	public & local DNS IPs, local resolvers & related info
 	loc		:	coordinates & country of public IPs (only with 'net' or 'dns')
@@ -24,5 +25,9 @@ myip [ARG(s)]
 	help		:	this help document
 
 
-Optional requisite: terminal-share	
-https://github.com/mattt/terminal-share
+Optional requisites:
+
+terminal-share: https://github.com/mattt/terminal-share
+transmission-cli: https://transmissionbt.com – install manually or with: brew install transmission-cli
+
+tracking torrent available i.a. at: https://ipleak.net (manually add with transmission-remote)
