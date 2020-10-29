@@ -30,4 +30,4 @@ Optional requisites:
 terminal-share: https://github.com/mattt/terminal-share
 transmission-cli: https://transmissionbt.com – install manually or with: brew install transmission-cli
 
-tracking torrent available i.a. at: https://ipleak.net (manually add with transmission-remote)
+supported tracking torrent available at: https://ipleak.net (manually add with transmission-remote)
