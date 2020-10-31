@@ -1,12 +1,13 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# myip v0.5
+# myip v0.5.1
 
+export LANG=en_US.UTF-8
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
 
 process="myip"
-vno="0.4"
+vno="0.5.1"
 
 _simple-ip () {
 	icount=0
@@ -39,9 +40,16 @@ _ip () {
 			! [[ $publicname ]] && publicname="-"
 			echo -e "Public Name:\t$publicname"
 			whoisraw=$(whois "$publicip" 2>/dev/null)
-			publicorg=$(echo "$whoisraw" | grep -e "^org-name:" -e "^OrgName:" | grep -v "^$" | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | head -1 | xargs)
+			publicorg=$(echo "$whoisraw" | awk '/Information related to/,0' | grep "^descr:" | head -1 | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
 			if ! [[ $publicorg ]] ; then
-				publicorg=$(echo "$whoisraw" | grep "^descr:" | grep -v "^$" | sort | awk '!a[$0]++' | awk -F":" '{print substr($0, index($0,$2))}' | head -1 | xargs)
+				publicorg=$(echo "$whoisraw" | grep -e "^org-name:" -e "^OrgName:" | head -1 | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
+			fi
+			if ! [[ $publicorg ]] ; then
+				descr_raw=$(echo "$whoisraw" | grep "^descr" | head -2 | grep -v "#")
+				if [[ $(echo "$descr_raw" | wc -l) -gt 1 ]] ; then
+					descr_raw=$(echo "$descr_raw" | head -1)
+				fi
+				publicorg=$(echo "$descr_raw" | awk -F":" '{print substr($0, index($0,$2))}' | xargs)
 			fi
 			! [[ $publicorg ]] && publicorg="-"
 			echo -e "Provider:\t$publicorg"
@@ -100,7 +108,7 @@ _ip () {
 				vpndevice=$(netstat -nr | awk '/^0\/1/ {print $4}')
 				if [[ $vpndevice ]] ; then
 					echo -e "OpenVPN:\t$vpndevice"
-					vpnip=$(ifconfig "$vpndevice" 2>/dev/null | grep "inet " | awk '{print $2}')
+					vpnip=$(echo "$networkstatus" | grep "inet " | awk '{print $2}')
 					! [[ $vpnip ]] && vpnip="-"
 					echo -e "OpenVPN IP:\t$vpnip"
 				else
@@ -177,7 +185,7 @@ _local () {
 	if $localdev ; then
 		localip=$(ipconfig getifaddr "$localdevice")
 		if ! [[ $localip ]] ; then
-			localip=$(ifconfig "$localdevice" 2>/dev/null | grep "inet " | awk '{print $2}')
+			localip=$(echo "$networkstatus" | grep "inet " | awk '{print $2}')
 			! [[ $localip ]] && localip="-"
 		fi
 	else
@@ -466,6 +474,7 @@ share=false
 message=false
 email=false
 ipopt=false
+dnslytics=false
 
 if [[ $1 == "--ip="* ]] ; then
 	publicip=$(echo "$1" | awk -F"=" '{print $2}')
@@ -532,6 +541,7 @@ else
 				lgeo=true
 				address=true
 				maps=true
+				dnslytics=true
 				shift
 				;;
 			net)
@@ -607,9 +617,25 @@ if ! [[ $localdevice ]] ; then
 	echo "ERROR: no route" >&2
 	localdev=false
 	localdevice="-"
+else
+	networkstatus=$(ifconfig "$localdevice" 2>/dev/null)
+	if ! echo "$networkstatus" | grep -q "status: active$" &>/dev/null ; then
+		echo "ERROR: device $localdevice inactive" >&2
+	fi
 fi
-service=$(networksetup -listnetworkserviceorder 2>/dev/null | grep -B1 "Device: $localdevice)$" | head -1 | awk -F")" '{print substr($0, index($0,$2))}' | xargs)
-! [[ $service ]] && service="-"
+service_all=$(networksetup -listnetworkserviceorder 2>/dev/null)
+service_raw=$(echo "$service_all" | grep -B1 "Device: $localdevice)$")
+if [[ $service_raw ]] ; then
+	hwport=$(echo "$service_raw" | grep "$localdevice)$" | awk '{print substr($0, index($0,$3))}' | cut -d, -f1 | xargs)
+	! [[ $hwport ]] && hwport="-"
+	hwportstring="Hardware Port:\t$hwport"
+	service=$(echo "$service_raw" | head -1 | awk -F")" '{print substr($0, index($0,$2))}' | xargs)
+	! [[ $service ]] && service="-"
+else
+	hwport=$(echo "$service_all" | grep "Device: )$" | awk '{print substr($0, index($0,$3))}' | cut -d, -f1 | awk '!a[$0]++' | tr '\n' '|' | sed -e 's/|$//' -e 's/|/ | /g')
+	hwportstring="Ports [?]:\t$hwport"
+	service="-"
+fi
 offline=false
 if ! ping -q -c 1 1.1.1.1 &>/dev/null ; then
 	echo "ERROR: offline" >&2
@@ -629,6 +655,7 @@ if $fullip ; then
 		_torrent
 	fi
 	echo -e "Device:\t\t$localdevice"
+	echo -e "$hwportstring"
 	echo -e "Service:\t$service"
 	if $localdata ; then
 		_local
@@ -639,12 +666,14 @@ if $fullip ; then
 else
 	if $torrent ; then
 		echo -e "Device:\t\t$localdevice"
+		echo -e "$hwportstring"
 		echo -e "Service:\t$service"
 		_torrent
 	fi
 	if $localdata ; then
 		if ! $torrent ; then
 			echo -e "Device:\t\t$localdevice"
+			echo -e "$hwportstring"
 			echo -e "Service:\t$service"
 		fi
 		_local
@@ -656,6 +685,7 @@ else
 			_dns
 			if ! $torrent ; then
 				echo -e "Device:\t\t$localdevice"
+				echo -e "$hwportstring"
 				echo -e "Service:\t$service"
 			fi
 		fi
@@ -730,7 +760,7 @@ if $lgeo ; then
 	fi
 fi
 
-if $fullip ; then
+if $dnslytics ; then
 	echo -e "Details:\thttps://dnslytics.com/ip/$publicip"
 fi
 
