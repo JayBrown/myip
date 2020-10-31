@@ -1,13 +1,13 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# myip v0.5.1
+# myip v0.5.2
 
 export LANG=en_US.UTF-8
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
 
 process="myip"
-vno="0.5.1"
+vno="0.5.2"
 
 _simple-ip () {
 	icount=0
@@ -125,36 +125,40 @@ _ip () {
 
 _killbt () {
 	transmission-remote --exit &>/dev/null
-	sleep .5
-	if pgrep transmission-daemon &>/dev/null ; then
-		killall transmission-daemon &>/dev/null
+	sleep 1
+	pid=$(pgrep transmission-daemon 2>/dev/null)
+	if [[ $pid ]] ; then
+		kill -n 15 "$pid" &>/dev/null
 	fi
 }
 
 _torrent () {		
 	if ! command -v transmission-daemon &>/dev/null || ! command -v transmission-remote &>/dev/null ; then
 		echo -e "Torrent IP:\tERROR: transmission CLI missing!" >&2
-		_killbt
 		return
 	fi
+	nodaemon=false
 	if ! pgrep transmission-daemon &>/dev/null ; then
 		transmission-daemon &>/dev/null
+		sleep 1
 		if ! pgrep transmission-daemon &>/dev/null ; then
 			echo -e "Torrent IP:\tERROR launching transmission-daemon!" >&2
 			return
 		fi
+		nodaemon=true
 	fi
-	sleep 1
 	ipleakbt=$(transmission-remote -l 2>/dev/null | grep "ipleak\.net+torrent+detection$")
 	if ! [[ $ipleakbt ]] ; then
 		echo -e "Torrent IP:\tERROR: no magnet link found!" >&2
-		_killbt
+		sleep 1
+		$nodaemon && _killbt
 		return
 	fi
 	btn=$(echo "$ipleakbt" | awk '{print $1}' | sed 's/*$//')
 	if ! [[ $btn ]] ; then
 		echo -e "Torrent IP:\tERROR parsing IPLeak torrent!" >&2
-		_killbt
+		sleep 1
+		$nodaemon && _killbt
 		return 
 	fi
 	transmission-remote -t "$btn" -s &>/dev/null
@@ -172,13 +176,15 @@ _torrent () {
 	done
 	if ! [[ $tinfo ]] ; then
 		echo -e "Torrent IP:\tERROR: torrent info missing!" >&2
-		_killbt
+		sleep 1
+		$nodaemon && _killbt
 		return 
 	fi
 	torrentip=$(echo "$tinfo" | awk -F"IP:" '{print $2}' | awk -F"," '{print $1}')
 	! [[ $torrentip ]] && torrentip="-"
+	sleep 1
 	echo -e "Torrent IP:\t$torrentip"
-	_killbt
+	$nodaemon && _killbt
 }
 
 _local () {
