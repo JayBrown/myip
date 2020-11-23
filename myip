@@ -1,7 +1,7 @@
 #!/bin/zsh
 # shellcheck shell=bash
 
-# myip v0.6.1
+# myip v0.6.3
 
 export LANG=en_US.UTF-8
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/bin:/sw/bin:"$HOME"/.local/bin:"$HOME"/bin:"$HOME"/local/bin
@@ -9,7 +9,7 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/local/bin:/opt/sw/
 tabs -12
 
 process="myip"
-vno="0.6.1"
+vno="0.6.3"
 
 _simple-ip () {
 	if $offline ; then
@@ -189,7 +189,7 @@ _torrent () {
 	while true
 	do
 		[[ $btcount -eq 3 ]] && break
-		tinfo=$(transmission-remote -t "$btn" -i 2>/dev/null | grep "look https\:\/\/ipleak\.net for details\.$")
+		tinfo=$(transmission-remote -t "$btn" -i 2>/dev/null | grep "Tracker gave a warning: Detected IP:")
 		[[ $tinfo ]] && break
 		sleep "$btsleep"
 		((btsleep++))
@@ -201,7 +201,7 @@ _torrent () {
 		$nodaemon && _killbt
 		return 
 	fi
-	torrentip=$(echo "$tinfo" | awk -F"IP:" '{print $2}' | awk -F"," '{print $1}')
+	torrentip=$(echo "$tinfo" | awk -F" IP:" '{print $2}')
 	! [[ $torrentip ]] && torrentip="-"
 	sleep 1
 	transmission-remote -t "$btn" -S &>/dev/null
@@ -685,7 +685,7 @@ if ! [[ $localdevice ]] ; then
 else
 	networkstatus=$(ifconfig "$localdevice" 2>/dev/null)
 	if ! echo "$networkstatus" | grep -q "status: active$" &>/dev/null ; then
-		if [[ $localdevice == "utun"* ]] || [[ $localdevice == "tun"* ]] || [[ $localdevice == "utap"* ]] || [[ $localdevice == "tap"* ]] ; then
+		if [[ $localdevice == "utun"* ]] || [[ $localdevice == "tun"* ]] || [[ $localdevice == "utap"* ]] || [[ $localdevice == "tap"* ]] || [[ $localdevice == "vtap"* ]] || [[ $localdevice == "feth"* ]] ; then
 			virtual=true
 			arp_raw=$(arp -a 2>/dev/null | head -1)
 			apaddr=$(echo "$arp_raw" | awk -F"[)(]" '{print $2}')
